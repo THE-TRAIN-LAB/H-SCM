@@ -1,0 +1,28 @@
+[project]
+name = "hscm-ran"
+version = "0.1.0"
+description = "Hierarchical Structural Causal Model for causality-aware wireless RANs (Sionna L1-L3, Pearl's three rungs)"
+requires-python = ">=3.11"
+dependencies = [
+    "sionna>=1.2,<1.3",
+    "tensorflow>=2.21",
+    "numpy",
+    "scipy",
+    "pandas",
+    "scikit-learn",
+    "causal-learn",
+    "lingam",
+    "statsmodels",
+    "networkx",
+    "matplotlib",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["simulator", "causal", "scheduler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

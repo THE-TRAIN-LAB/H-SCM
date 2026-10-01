@@ -1,0 +1,125 @@
+# Simulator parameters. Values with "# UP-n" are NOT specified in the paper —
+# see docs/unresolved_parameters.md for derivation and calibration target.
+
+seed: 42                    # UP-13 (our choice)
+
+phy:
+  # -- specified by the paper (§IV-A) --
+  ldpc_info_bits: 512
+  fft_size: 76              # subcarriers
+  subcarrier_spacing: 15.0e3
+  num_ofdm_symbols: 14
+  channel_model: CDL-C
+  batch_size: 32
+  # -- assumed (paper silent) --
+  carrier_frequency: 2.6e9  # UP-16
+  cdl_delay_spread: 100.0e-9  # UP-17 (fixed CDL param; per-sample ds enters eq. 7 analytically)
+  ue_speed_mps: 3.0         # UP-18
+  pilot_pattern: kronecker  # UP-19
+  pilot_ofdm_symbol_indices: [2, 11]  # UP-19
+  cyclic_prefix_length: 6   # UP-20
+  # -- backend selection --
+  backend: sionna           # sionna | analytical (both implement PHYBackend)
+  target_bler: 0.1          # MCS selection rule (UP-15)
+  analytical:               # AWGN-approximation backend (paper's "analytical fallback")
+    gap_db: 3.0             # Shannon-gap: thr = 10log10(2^se - 1) + gap_db
+    slope_db: 1.0           # logistic waterfall slope
+
+# sinr_eff convention (project-wide): Es/N0 per resource element at the
+# receiver input, in dB. Sionna conversion is exact: unit-energy QAM +
+# normalize_channel=True  =>  no = 10^(-sinr_eff/10). See simulator/phy.py.
+
+mcs_table:                  # UP-15: [mod_order m, code_rate r]
+  - [2, 0.30]
+  - [2, 0.44]
+  - [2, 0.59]
+  - [4, 0.37]
+  - [4, 0.48]
+  - [4, 0.60]
+  - [4, 0.74]
+  - [6, 0.55]
+  - [6, 0.65]
+  - [6, 0.75]
+  - [6, 0.85]
+  - [6, 0.93]
+
+sinr:                       # eq. (7)
+  beta_L: 18.0              # UP-2, dB per unit load
+  doppler_penalty: {a: 0.5, f0: 100.0}    # UP-6: a*log2(1+dop/f0) dB (recalibrated: Table II SINR intercept)
+  delay_penalty:   {a: 0.4, d0: 100.0}    # UP-7: a*log2(1+ds/d0) dB (recalibrated: Table II SINR intercept)
+
+mac:
+  base_prb: 100             # paper §V
+  alpha_L: 0.58             # UP-1
+  harq_max_rounds: 3        # paper §IV-A
+  kappa_harq: 0.15          # UP-4
+  kappa_hw: 0.05            # UP-3
+  tput_scale_mbps_per_prb_se: 0.21   # C0: calibrated to Table II bucket means (finalized on Sionna backend)
+  tput_floor_mbps: 0.5      # UP-24: MGBR-style minimum bearer rate (bounds RTT tail)
+
+network:
+  arrival_mbps: 5.5         # UP-9: FIXED constant, not an SCM node (paper's U has
+                            # exactly 10 members; arr is not among them).
+                            # UP-32: raised from 3.0. At 3.0 the queue was
+                            # near-idle (rho_med 0.26, 0% overloaded) and the
+                            # L3 mechanisms carried no signal: the overflow and
+                            # served-fraction terms never left 1, so
+                            # queue_dep -> pkt_loss was recovered in 0/20 seeds
+                            # and mac_tput -> queue_dep -- a FIRST-ORDER term --
+                            # in only 9/20. Chosen from a sweep, not tuned to a
+                            # result: the recovery knee is at ~4.8 and 5.5
+                            # sits ~1.7x above it in overflow fraction.
+  rho_max: 0.95             # UP-9: P-K validity clamp; overload routed to pkt_loss
+  # rtt_ms = tau0 + c_q * queue_dep / arrival_mbps + tau_harq * harq_retx
+  # (UP-31). c_q is the packet-size constant, UNCHANGED by the Little's-law
+  # correction: 1 kB packet = 8 kbit, and 8 kbit / 1 Mbps = 8 ms.
+  tau0_ms: 1.0              # baseline (propagation + processing + one service)
+  c_q_ms_mbps: 8.0          # 1 kB packets
+  tau_harq_ms: 8.0          # per expected retransmission
+  q_thr: 5.0                # UP-8
+  q_scale: 10.0             # UP-8
+
+observational:              # paper §V
+  n_samples: 500
+  snr_db: {dist: uniform, low: 2.0, high: 28.0}
+  cell_load: {dist: beta, a: 2.0, b: 2.0}
+  shadow_fading_db: {dist: normal, mean: 0.0, var: 49.0}
+  hw_impairment: {dist: normal, mean: 0.0, var: 2.25}
+  traffic_burst: {dist: lognormal, mu: 0.0, sigma2: 0.12}
+  doppler_hz: {dist: uniform, low: 5.0, high: 200.0}     # UP-9
+  delay_spread_ns: {dist: uniform, low: 30.0, high: 300.0}  # UP-9
+  eps_sinr: {dist: normal, mean: 0.0, var: 0.25}         # UP-10
+  eps_sched_prb: {dist: normal_rounded, mean: 0.0, var: 10.5}  # UP-10, calibrated to r(L,prb) ~ -0.97
+  eps_queue: {dist: normal, mean: 0.0, var: 0.01}        # UP-10
+
+interventional:
+  # UP-14 / DEVIATION: paper prints "20 regimes x 30 samples" AND "1070 rows total",
+  # which contradict (20x30=600 => 1100). We adopt Option B: 19 regimes x 30 = 570,
+  # total 500 + 570 = 1070, keeping the printed dataset shape (1070 x 26).
+  samples_per_regime: 30
+  regimes:
+    # 9: do(prb) x do(L) grid  [paper names both axes]
+    - {do: {num_prb: 10,  cell_load: 0.1}}
+    - {do: {num_prb: 10,  cell_load: 0.5}}
+    - {do: {num_prb: 10,  cell_load: 0.9}}
+    - {do: {num_prb: 50,  cell_load: 0.1}}
+    - {do: {num_prb: 50,  cell_load: 0.5}}
+    - {do: {num_prb: 50,  cell_load: 0.9}}
+    - {do: {num_prb: 100, cell_load: 0.1}}
+    - {do: {num_prb: 100, cell_load: 0.5}}
+    - {do: {num_prb: 100, cell_load: 0.9}}
+    # 3: do(prb) alone (marginal over L) — Rung 2 uses these (n=30 each)
+    - {do: {num_prb: 10}}
+    - {do: {num_prb: 50}}
+    - {do: {num_prb: 100}}
+    # 2: forced MCS extremes (identify mcs -> downstream edges)
+    - {do: {mcs_idx: 0}}
+    - {do: {mcs_idx: 11}}
+    # 1: forced HARQ off (contrast vs observational, where harq varies 0-3)
+    - {do: {harq_retx: 0}}
+    # 2: SNR extremes
+    - {do: {snr: 4.0}}
+    - {do: {snr: 26.0}}
+    # 2: shadow-fading extremes (+-2 sigma)
+    - {do: {shadow_fading: -14.0}}
+    - {do: {shadow_fading: 14.0}}

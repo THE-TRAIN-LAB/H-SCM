@@ -1,0 +1,88 @@
+# Ground-truth DAG, derived STRICTLY from the implemented structural equations:
+# each edge below is "parent appears in the structural equation of child" — no
+# edge exists for any other reason.
+#
+# Result: 23 nodes, 30 edges. The paper reports 39 edges but never prints the
+# edge list (Fig. 1 is low-resolution); the equation-derived graph has 35.
+# We do NOT pad the graph to match the count — see UP-12. Phase 8 updates the
+# paper's printed edge count to match the implementation.
+#
+# [paper] = edge explicitly stated in the paper text/equations.
+
+edges:
+  # sinr_eff = snr + xi_sf - beta_L*L - dop_pen(dop) - ds_pen(ds) + eps1   (eq. 7)
+  - [snr, sinr_eff]                 # [paper]
+  - [shadow_fading, sinr_eff]       # [paper] effect-modifier edge (Fig. 1 purple)
+  - [cell_load, sinr_eff]           # [paper] backdoor edge #2 (inter-cell interference)
+  - [doppler, sinr_eff]             # [paper]
+  - [delay_spread, sinr_eff]        # [paper]
+  - [eps_sinr, sinr_eff]            # [paper]
+
+  # mcs_idx = argmax{mcs : BLER(sinr_eff, mcs) <= target}
+  - [sinr_eff, mcs_idx]
+
+  # mod_order, code_rate = MCS table lookups
+  - [mcs_idx, mod_order]
+  - [mcs_idx, code_rate]
+
+  # bler = BLER(sinr_eff, mcs_idx)   (Sionna forward pass / analytical)
+  - [sinr_eff, bler]
+  - [mcs_idx, bler]
+
+  # se_phy = mod_order * code_rate      (nominal MCS spectral efficiency Qm*R)
+  # bler is NOT a parent: se_phy is the NOMINAL efficiency of the selected
+  # MCS. Residual decoding failure is a reliability term and is applied once,
+  # in pkt_loss.
+  - [mod_order, se_phy]
+  - [code_rate, se_phy]
+
+  # num_prb = floor(100*(1 - alpha_L*L)) + epsT   (eq. 8)
+  - [cell_load, num_prb]            # [paper] backdoor edge #1 (THE confounding edge)
+  - [eps_sched, num_prb]            # [paper]
+
+  # harq_retx = HARQ-IR rounds(bler)
+  - [bler, harq_retx]
+
+  # mac_tput = C0 * num_prb * se_phy*(1 + k_hw*xi_hw) / (1 + kappa_harq*harq_retx)
+  # Available service rate after retransmission OVERHEAD. bler is NOT a parent:
+  # a retransmission costs airtime whether or not it succeeds, which is the
+  # harq_retx term; whether a served block decodes is settled in pkt_loss.
+  - [num_prb, mac_tput]             # [paper] treatment -> outcome path
+  - [se_phy, mac_tput]
+  - [hw_impairment, mac_tput]       # [paper] effect modifier (se_eff term)
+  - [harq_retx, mac_tput]
+
+  # queue_dep = [ rho^2*xi_tb/(2(1-rho)) + eps3 ]_+                      (eq. 9)
+  # Sakasegawa GI/G/1 mean queue BACKLOG L_q with C_s^2 = 0 and xi_tb = C_a^2.
+  # rho = min(ARR_CONST/mac_tput, rho_max); arrival rate is a fixed constant
+  # (UP-9), the clamp is ours, overload is handled in pkt_loss. xi_tb reaches
+  # queue_dep exactly once, as C_a^2 in the numerator.
+  - [mac_tput, queue_dep]           # [paper]
+  - [traffic_burst, queue_dep]      # [paper] effect modifier (arrival variability C_a^2)
+  - [eps_queue, queue_dep]          # [paper]
+
+  # rtt_ms = tau0 + c_q*queue_dep/arr + tau_harq*harq_retx               (UP-31)
+  # Little's law: W_q = L_q / lambda, and lambda is a fixed constant (UP-9), so
+  # mac_tput IS NOT A PARENT. It reaches rtt_ms only through queue_dep, which
+  # is the physically correct path: lower service rate -> higher utilization
+  # -> longer queue -> more delay. The old form divided L_q by mac_tput, which
+  # computes rho * W_q, not W_q.
+  - [queue_dep, rtt_ms]             # [paper]
+  - [harq_retx, rtt_ms]             # [paper]
+
+  # pkt_loss = 1 - (1 - bler_res(bler, harq_retx)) * exp(-max(0, qdep-q_thr)/q_scale)
+  # mac_tput is NOT a parent (UP-34): goodput = mac_tput * (1 - pkt_loss)
+  # already carries the service limit, so a served-fraction factor here
+  # applied it twice.
+  - [queue_dep, pkt_loss]
+  - [bler, pkt_loss]
+  - [harq_retx, pkt_loss]
+
+  # goodput = mac_tput * (1 - pkt_loss)
+  - [mac_tput, goodput]             # [paper]
+  - [pkt_loss, goodput]             # [paper]
+
+# 30 edges. Load-bearing structures (must hold under any reconciliation):
+#   backdoor path: cell_load -> num_prb  AND  cell_load -> sinr_eff ~~> goodput
+#   effect modifiers with NO edge into num_prb: shadow_fading, hw_impairment,
+#   traffic_burst

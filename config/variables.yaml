@@ -1,0 +1,44 @@
+# H-SCM variables: 23 nodes (10 exogenous + 13 endogenous) + regime column.
+# Distributions per paper §V; items marked assumed:true are unresolved in the
+# paper (see docs/unresolved_parameters.md).
+#
+# NOT an SCM node: arrival rate (rho = arr/mac_tput) is a FIXED simulation
+# constant (network.arrival_mbps in simulator.yaml) — the paper's exogenous
+# set U has exactly these 10 members and arr is not among them (UP-9).
+
+exogenous:
+  cell_load:      {symbol: L,      layer: 0, dist: "Beta(2,2)",        role: confounder}
+  shadow_fading:  {symbol: xi_sf,  layer: 0, dist: "Normal(0,49)",     unit: dB, role: effect_modifier}
+  hw_impairment:  {symbol: xi_hw,  layer: 0, dist: "Normal(0,2.25)",   role: effect_modifier}
+  traffic_burst:  {symbol: xi_tb,  layer: 0, dist: "LogNormal(0,0.12)", role: effect_modifier, note: "xi_tb = C_a^2, the squared coefficient of variation of inter-arrival times: 1 = Poisson, >1 burstier, <1 more regular. LogNormal(0,0.12) is centred near 1 (UP-23, UP-27)"}
+  snr:            {symbol: snr,    layer: 0, dist: "Uniform(2,28)",    unit: dB}
+  doppler:        {symbol: dop,    layer: 0, dist: "Uniform(5,200)",   unit: Hz, assumed: true}
+  delay_spread:   {symbol: ds,     layer: 0, dist: "Uniform(30,300)",  unit: ns, assumed: true}
+  eps_sinr:       {symbol: eps1,   layer: 0, dist: "Normal(0,0.25)",   unit: dB, assumed: true}
+  eps_sched:      {symbol: epsT,   layer: 0, dist: "round(Normal(0,4))", unit: PRB, assumed: true}
+  eps_queue:      {symbol: eps3,   layer: 0, dist: "Normal(0,0.01)",   assumed: true}
+
+endogenous:
+  # L1 PHY
+  sinr_eff:   {layer: 1, eq: "eq7: snr + xi_sf - beta_L*L - dop_pen - ds_pen + eps1", unit: dB}
+  mcs_idx:    {layer: 1, eq: "argmax mcs: BLER(sinr_eff, mcs) <= 0.1"}
+  mod_order:  {layer: 1, eq: "MCS table lookup m"}
+  code_rate:  {layer: 1, eq: "MCS table lookup r"}
+  bler:       {layer: 1, eq: "BLER(sinr_eff, mcs_idx) via PHYBackend (Sionna | analytical)"}
+  se_phy:     {layer: 1, eq: "mod_order * code_rate (nominal MCS spectral efficiency Qm*R; reliability applied once, in pkt_loss)"}
+  # L2 MAC
+  num_prb:    {layer: 2, eq: "eq8: floor(100*(1 - alpha_L*L)) + epsT (obs) | t (do)", role: treatment}
+  harq_retx:  {layer: 2, eq: "sum_{k=1..3} bler^k — expected HARQ retransmissions (stylized continuous surrogate, fractional, range 0-3; UP-21)"}
+  mac_tput:   {layer: 2, eq: "max(C0 * num_prb * se_phy*(1+kappa_hw*xi_hw) / (1+kappa_harq*harq_retx), tput_floor) — available service rate after retransmission OVERHEAD (floor: UP-24)"}
+  # L3 Network
+  queue_dep:  {layer: 3, eq: "eq9: [rho^2*xi_tb/(2(1-rho)) + eps3]_+ — Sakasegawa GI/G/1 mean queue BACKLOG L_q with C_s^2=0; rho = min(ARR_CONST/mac_tput, rho_max)"}
+  pkt_loss:   {layer: 3, eq: "1 - (1-bler_res(bler,harq_retx))*exp(-max(0, queue_dep-q_thr)/q_scale)", assumed: true, note: "UP-8; mac_tput is NOT a parent (UP-34) — goodput = mac_tput*(1-pkt_loss) already carries the service limit"}
+  rtt_ms:     {layer: 3, eq: "tau0 + c_q*queue_dep/ARR_CONST + tau_harq*harq_retx — Little's law W_q = L_q/lambda (UP-31); mac_tput is NOT a parent, it acts through queue_dep"}
+  goodput:    {layer: 3, eq: "mac_tput * (1 - pkt_loss)", role: outcome}
+
+dataset:
+  n_observational: 500
+  n_interventional: 570   # 19 regimes x 30 — Option B resolution of the paper's
+                          # "20 regimes"/"1070 rows" contradiction (UP-14)
+  n_columns: 24           # 23 nodes + regime label
+  regime_column: regime
