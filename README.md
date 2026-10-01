@@ -176,25 +176,3 @@ realizations use seeds 42–91) and regenerate bit-for-bit. The BLER table
 Rebuilding it from scratch draws a fresh Monte-Carlo sample.
 
 Verified on macOS arm64 (CPU) with Sionna 1.2.2 / TensorFlow 2.21.
-
-## Layout
-
-```
-config/       variables.yaml, dag_edges.yaml (Fig. 1), simulator.yaml (Table I and all other constants)
-simulator/    phy.py (Sionna L1), mac.py (L2), network.py (L3), ran_simulator.py (observational / do() / fixed-unit)
-causal/       discovery.py, protocol_knowledge.py, mediator_test.py, fitting.py, counterfactual.py
-scheduler/    causal_scheduler.py (exact-search PRB allocation)
-experiments/  the scripts above
-data/         datasets, held-out oracle, BLER table
-results/      tables, recovered graph, figures/
-tests/        pytest suite
-```
-
-## Scope
-
-The DAG in Fig. 1 serves as the simulator ground truth against which discovery is
-evaluated; the experiments test recovery of the generating structure from synthetic
-telemetry, not the causal structure of a real network. The targeted regimes and
-mediator blocking set internal variables that only a simulator can control;
-interventions that can be actuated on an operational RAN, and validation of the
-recovered structure on O-RAN traces, are future work.
