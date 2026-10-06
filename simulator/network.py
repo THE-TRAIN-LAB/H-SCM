@@ -111,8 +111,12 @@ def rtt(queue_dep, harq_retx, cfg):
             + t_h * np.asarray(harq_retx))
 
 
-def packet_loss(bler, harq_retx, queue_dep, cfg):
+def packet_loss(bler, queue_dep, cfg):
     """UP-8 loss model: residual link loss x queue-overflow loss.
+
+    harq_retx is NOT a parent (UP-37): the residual decoding failure after
+    the initial transmission and K retransmissions is bler^(1 + K), which
+    depends on bler and the fixed limit K only.
 
     Both factors are fractions OF WHAT IS SERVED, which is what a loss
     probability should be. mac_tput is NOT a parent -- see the module note on
@@ -120,7 +124,7 @@ def packet_loss(bler, harq_retx, queue_dep, cfg):
     """
     q_thr = float(cfg["network"]["q_thr"])
     q_scale = float(cfg["network"]["q_scale"])
-    b_res = residual_bler(bler, harq_retx)
+    b_res = residual_bler(bler, cfg)
     overflow = np.exp(-np.maximum(0.0, np.asarray(queue_dep) - q_thr) / q_scale)
     return np.clip(1.0 - (1.0 - b_res) * overflow, 0.0, 1.0)
 

@@ -6,13 +6,13 @@
 
 metrics:
   seeds: 50
-  n_true_edges: 24
-  n_recovered: 22
-  true_positives: 22
+  n_true_edges: 23
+  n_recovered: 21
+  true_positives: 21
   false_positives: 0
   false_negatives: 2
   precision: 1.000
-  recall: 0.917
+  recall: 0.913
 
 recovered_edges:                    # [seeds_found / total]
   - [bler, harq_retx]                     # 50/50
@@ -21,7 +21,6 @@ recovered_edges:                    # [seeds_found / total]
   - [cell_load, sinr_eff]                 # 50/50
   - [code_rate, se_phy]                   # 50/50
   - [harq_retx, mac_tput]                 # 50/50
-  - [harq_retx, pkt_loss]                 # 50/50
   - [harq_retx, rtt_ms]                   # 50/50
   - [mac_tput, goodput]                   # 50/50
   - [mac_tput, queue_dep]                 # 50/50

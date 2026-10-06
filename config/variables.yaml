@@ -32,7 +32,7 @@ endogenous:
   mac_tput:   {layer: 2, eq: "max(C0 * num_prb * se_phy*(1+kappa_hw*xi_hw) / (1+kappa_harq*harq_retx), tput_floor) — available service rate after retransmission OVERHEAD (floor: UP-24)"}
   # L3 Network
   queue_dep:  {layer: 3, eq: "eq9: [rho^2*xi_tb/(2(1-rho)) + eps3]_+ — Sakasegawa GI/G/1 mean queue BACKLOG L_q with C_s^2=0; rho = min(ARR_CONST/mac_tput, rho_max)"}
-  pkt_loss:   {layer: 3, eq: "1 - (1-bler_res(bler,harq_retx))*exp(-max(0, queue_dep-q_thr)/q_scale)", assumed: true, note: "UP-8; mac_tput is NOT a parent (UP-34) — goodput = mac_tput*(1-pkt_loss) already carries the service limit"}
+  pkt_loss:   {layer: 3, eq: "1 - (1 - bler^(1+K_H))*exp(-max(0, queue_dep-q_thr)/q_scale), K_H = harq_max_rounds", assumed: true, note: "UP-8; mac_tput is NOT a parent (UP-34) — goodput = mac_tput*(1-pkt_loss) already carries the service limit; harq_retx is NOT a parent (UP-37) — residual decoding failure after 1+K_H independent attempts is bler^(1+K_H)"}
   rtt_ms:     {layer: 3, eq: "tau0 + c_q*queue_dep/ARR_CONST + tau_harq*harq_retx — Little's law W_q = L_q/lambda (UP-31); mac_tput is NOT a parent, it acts through queue_dep"}
   goodput:    {layer: 3, eq: "mac_tput * (1 - pkt_loss)", role: outcome}
 

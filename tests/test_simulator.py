@@ -161,13 +161,12 @@ def test_service_limit_applied_once(cfg):
     """
     from simulator import network
     arr = float(cfg["network"]["arrival_mbps"])
-    lossless = dict(bler=np.zeros(3), harq_retx=np.zeros(3),
-                    queue_dep=np.zeros(3))
+    lossless = dict(bler=np.zeros(3), queue_dep=np.zeros(3))
     p = network.packet_loss(**lossless, cfg=cfg)
     assert np.allclose(p, 0.0)
     for mu in (arr / 2, arr, 4 * arr):
         y = network.goodput(mu, network.packet_loss(
-            bler=0.0, harq_retx=0.0, queue_dep=0.0, cfg=cfg))
+            bler=0.0, queue_dep=0.0, cfg=cfg))
         assert np.isclose(y, mu), f"mac_tput={mu} -> {y}, expected {mu}"
 
 
@@ -177,8 +176,7 @@ def test_pkt_loss_does_not_depend_on_mac_tput(cfg):
     to heavy underload."""
     from simulator import network
     arr = float(cfg["network"]["arrival_mbps"])
-    common = dict(bler=np.full(4, 0.1), harq_retx=np.full(4, 0.11),
-                  queue_dep=np.full(4, 10.0))
+    common = dict(bler=np.full(4, 0.1), queue_dep=np.full(4, 10.0))
     l = network.packet_loss(**common, cfg=cfg)
     assert np.allclose(l, l[0])
     import inspect
@@ -189,7 +187,7 @@ def test_queue_overflow_still_graduated(cfg):
     """Removing the served fraction must not remove the queue-overflow term:
     a deeper backlog still costs strictly more loss."""
     from simulator import network
-    l = network.packet_loss(bler=np.full(3, 0.1), harq_retx=np.full(3, 0.11),
+    l = network.packet_loss(bler=np.full(3, 0.1),
                             queue_dep=np.array([0.0, 10.0, 60.0]), cfg=cfg)
     assert l[0] < l[1] < l[2]
 
@@ -202,3 +200,20 @@ def test_rtt_tail_bounded(sim):
     # and the congested population still exists for CF-2's P2 window
     frac_p2 = df["rtt_ms"].between(5, 150).mean()
     assert 0.05 < frac_p2 < 0.45
+
+
+def test_residual_decoding_loss_matches_independent_attempts(cfg):
+    """UP-37. harq_retx = sum_k bler^k assumes every attempt fails
+    independently with probability bler; under that same assumption the
+    residual failure after the initial transmission and K retransmissions is
+    bler^(1+K): 1e-4 at the 0.1 BLER target with K = 3, not the 7.7% the
+    earlier bler^(1 + E[N_retx]) surrogate charged. harq_retx is not a parent."""
+    import inspect
+    from simulator import network
+    K = int(cfg["mac"]["harq_max_rounds"])
+    p = network.packet_loss(bler=np.array([0.1]), queue_dep=np.zeros(1), cfg=cfg)
+    assert np.isclose(p[0], 0.1 ** (1 + K))
+    assert "harq_retx" not in inspect.signature(network.packet_loss).parameters
+    edges = [tuple(e) for e in __import__("yaml").safe_load(
+        open(os.path.join(ROOT, "config", "dag_edges.yaml")))["edges"]]
+    assert ("harq_retx", "pkt_loss") not in edges and ("bler", "pkt_loss") in edges

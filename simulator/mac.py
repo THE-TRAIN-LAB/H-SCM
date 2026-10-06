@@ -4,22 +4,22 @@ Structural equations owned by this module:
 
     num_prb  = clip(floor(base_prb * (1 - alpha_L*L)) + eps_T, 1, base_prb)   (eq. 8)
     harq_retx = sum_{k=1..K} bler^k          (expected HARQ-IR retransmissions)
-    bler_res  = bler^(1 + harq_retx)         (residual BLER after IR combining;
+    bler_res  = bler^(1 + K)                 (residual decoding failure after the
+                                             initial transmission and K retransmissions;
                                              consumed ONLY by network.packet_loss)
     se_eff   = se_phy * (1 + kappa_hw * xi_hw)
     mac_tput = C0 * num_prb * se_eff / (1 + kappa_harq * harq_retx)
 
-HARQ model — STYLIZED CONTINUOUS SURROGATE, not a physical HARQ-IR
-implementation (UP-21). Under a simplified independent-failure reading
-(failure prob bler^k after k IR transmissions):
+HARQ model — expected-retransmission surrogate (UP-21, UP-37). Under an
+independent-failure reading (every attempt fails with probability bler, up
+to K retransmissions):
   - harq_retx = sum_{k=1..K} bler^k is the EXPECTED retransmission count —
     a fractional quantity (0.37, 1.42, ...), not an integer round count;
-  - the residual failure probability after all 1+K attempts would be
-    bler^(1+K), NOT bler^(1+harq_retx). We deliberately use
-    bler_res = bler^(1 + harq_retx) instead, because it (a) stays well
-    defined and smooth under do(harq_retx = h) for any real h, and (b) keeps
-    bler_res a monotone function of exactly the declared parents (bler,
-    harq_retx). Neither expression is physically exact for real HARQ-IR.
+  - the residual failure probability after all 1+K attempts is bler^(1+K).
+    Both follow from the same assumption, so bler_res depends on bler and
+    the fixed limit K only — NOT on harq_retx. (UP-37: the earlier surrogate
+    bler^(1 + harq_retx) charged 7.7% residual loss at the 0.1 BLER target,
+    where independent attempts give 0.01%.)
 Near-deterministic given bler, consistent with the paper's Table I
 (harq_retx R^2 = 0.999).
 
@@ -46,13 +46,13 @@ def harq_expected_retx(bler, cfg):
     return sum(bler ** k for k in range(1, K + 1))
 
 
-def residual_bler(bler, harq_retx):
-    """Residual BLER after IR combining: bler^(1 + harq_retx).
-
-    Defined in terms of harq_retx (not the round count) so that
-    do(harq_retx = 0) cleanly yields bler_res = bler."""
+def residual_bler(bler, cfg):
+    """Residual decoding failure after the initial transmission and K
+    retransmissions that each fail independently with probability bler:
+    bler^(1 + K), K = mac.harq_max_rounds (UP-37)."""
+    K = int(cfg["mac"]["harq_max_rounds"])
     bler = np.asarray(bler, dtype=float)
-    return np.clip(bler, 1e-12, 1.0) ** (1.0 + np.asarray(harq_retx))
+    return np.clip(bler, 1e-12, 1.0) ** (1.0 + K)
 
 
 def se_eff(se_phy, xi_hw, cfg):

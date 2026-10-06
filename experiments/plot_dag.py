@@ -105,13 +105,13 @@ PURPLE_EDGES = {("shadow_fading", "sinr_eff"), ("hw_impairment", "mac_tput"),
                 ("traffic_burst", "queue_dep")}
 # per-edge arc curvature (positive = counter-clockwise bow)
 # per-edge arc curvature (positive = counter-clockwise bow). The L1/L2 -> L3
-# edges are the crowded ones: bler and harq_retx both cross the MAC band to
-# reach pkt_loss and rtt_ms, so they are bowed apart deliberately rather than
+# edges are the crowded ones: bler crosses the MAC band to reach pkt_loss and
+# harq_retx to reach rtt_ms, so they are bowed apart deliberately rather than
 # left to overlap.
 RAD = {
     ("cell_load", "sinr_eff"): -0.25, ("cell_load", "num_prb"): 0.15,
     ("num_prb", "mac_tput"): -0.18,
-    ("bler", "pkt_loss"): -0.44, ("harq_retx", "pkt_loss"): -0.22,
+    ("bler", "pkt_loss"): -0.44,
     ("harq_retx", "rtt_ms"): 0.34, ("mac_tput", "rtt_ms"): 0.16,
     ("mac_tput", "goodput"): -0.40, ("pkt_loss", "goodput"): 0.08,
     ("queue_dep", "pkt_loss"): 0.14, ("queue_dep", "rtt_ms"): -0.14,

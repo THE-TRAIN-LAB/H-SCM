@@ -133,8 +133,7 @@ class RANSimulator:
                           network.queue_depth(v["mac_tput"], u["traffic_burst"],
                                               u["eps_queue"], self.cfg))
         v["pkt_loss"] = (forced("pkt_loss") if "pkt_loss" in do else
-                         network.packet_loss(v["bler"], v["harq_retx"],
-                                             v["queue_dep"], self.cfg))
+                         network.packet_loss(v["bler"], v["queue_dep"], self.cfg))
         v["rtt_ms"] = (forced("rtt_ms") if "rtt_ms" in do else
                        network.rtt(v["queue_dep"], v["harq_retx"], self.cfg))
         v["goodput"] = (forced("goodput") if "goodput" in do else
