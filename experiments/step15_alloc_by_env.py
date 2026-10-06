@@ -19,13 +19,15 @@ original experimental design and were NOT generated after seeing any shift
 result. --support-ablation reproduces the observational-only failure as a
 deliberate, separately reported control.
 
-FAIRNESS. Every learned method is fitted on exactly the same nominal pool.
-The noncausal baselines are genuine conditional-expectation predictors
-E[Y | T=k, X] over the observable NON-DESCENDANTS of T. Crucially one of them
-(noncausal_mlp) is SMOOTH IN T and can represent a UE-specific treatment
-response, so a win for H-SCM cannot be dismissed as "the baseline's regressor
-could not draw a straight line". The claim under test is a causal-structure
-advantage, not a better-regressor advantage.
+FAIRNESS. Every learned method is fitted on exactly the same nominal pool and
+reads the same telemetry at decision time. The MLP baseline (noncausal_mlp) is
+a conditional-expectation predictor E[Y | T=k, X] over the observable
+non-descendants of T, SMOOTH IN T so it can represent a UE-specific treatment
+response, and it is CALIBRATED TO THE UE'S FACTUAL OUTCOME: its predicted
+curve is rescaled so that the prediction at the factual allocation equals the
+factual goodput. It therefore has access to everything the H-SCM abducts
+from. The claim under test is a causal-structure advantage, not a
+better-regressor or more-information advantage.
 
 What the structural decomposition actually buys (and the claim to make): it
 localizes where protocol knowledge can be imposed. mac_tput is proportional to
@@ -38,14 +40,15 @@ noncausal_mlp is.
 hscm_gbm is retained as the function-class ablation: same graph, same data,
 same propagation, tree-based MAC mechanism.
 
-noncausal_mlp is an S-LEARNER: one model of E[Y | T, X], queried at every
-candidate T. Its single initialisation is re-fitted at four more seeds
+noncausal_mlp is one model of E[Y | T, X], queried at every candidate T and
+rescaled by the UE's factual-to-predicted goodput ratio at its factual
+allocation. Its single initialisation is re-fitted at four more seeds
 (noncausal_mlp_rs43..rs46) so the reported interval covers training noise, not
 only sampling noise -- "the baseline was one lucky or unlucky net" is then
 answerable from the table.
 
 flat_tprop closes the 2x2 that the claim above needs. hscm_struct differs from
-the S-learner in TWO ways at once: it has the SCM decomposition AND the
+the MLP in TWO ways at once: it has the SCM decomposition AND the
 proportional-in-T form. flat_tprop has the form WITHOUT the structure: it fits
 goodput = T * h(X) directly, with h fitted exactly as the SCM fits g for
 mac_tput (unweighted GBM on the ratio, same GBM_PARAMS, T removed from X).
@@ -74,9 +77,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.neural_network import MLPRegressor
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
+import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from causal.counterfactual import CounterfactualEngine            # noqa: E402
@@ -131,10 +132,66 @@ NC_FEATURES = ["cell_load", "snr", "doppler", "delay_spread", "sinr_eff",
                "mcs_idx", "mod_order", "code_rate", "bler", "se_phy",
                "harq_retx", "num_prb"]
 NC_ND = [c for c in NC_FEATURES if c != "num_prb"]   # T factored out
-MLP_INITS = (43, 44, 45, 46)            # extra initialisations of the S-learner
+MLP_INITS = (43, 44, 45, 46)            # extra initialisations of the MLP
+MLP_ARMS = ["noncausal_mlp"] + [f"noncausal_mlp_rs{r}" for r in MLP_INITS]
 METHODS = (["oracle", "hscm_struct", "hscm_gbm", "noncausal_mlp",
             "noncausal_gbm", "flat_tprop", "proportional", "equal", "random"]
            + [f"noncausal_mlp_rs{r}" for r in MLP_INITS])
+
+
+class TorchMLP:
+    """MLP regressor in PyTorch, mirroring scikit-learn's MLPRegressor recipe:
+    standardized inputs, two hidden layers of 64 ReLU units, Adam (lr 1e-3),
+    L2 penalty alpha = 1e-4 on the weights (not the biases), mini-batches of
+    200, at most 3000 epochs, and the same plateau rule (stop when the epoch
+    loss has not improved by tol = 1e-4 for 10 consecutive epochs). Weights
+    and biases start Glorot-uniform; `seed` fixes initialisation and shuffling."""
+
+    def __init__(self, hidden=(64, 64), lr=1e-3, alpha=1e-4, batch_size=200,
+                 max_iter=3000, tol=1e-4, n_iter_no_change=10, seed=42):
+        self.hidden, self.lr, self.alpha = hidden, lr, alpha
+        self.batch_size, self.max_iter = batch_size, max_iter
+        self.tol, self.n_iter_no_change, self.seed = tol, n_iter_no_change, seed
+
+    def fit(self, X, y):
+        torch.set_num_threads(2)
+        g = torch.Generator().manual_seed(self.seed)
+        X = np.asarray(X, dtype=np.float32); y = np.asarray(y, dtype=np.float32)
+        self.mu_, self.sd_ = X.mean(0), X.std(0) + 1e-12
+        Xt = torch.from_numpy((X - self.mu_) / self.sd_); yt = torch.from_numpy(y)
+        sizes = [X.shape[1], *self.hidden, 1]; layers = []
+        for i, (a, b) in enumerate(zip(sizes[:-1], sizes[1:])):
+            lin = torch.nn.Linear(a, b); bound = float(np.sqrt(6.0 / (a + b)))
+            with torch.no_grad():
+                lin.weight.uniform_(-bound, bound, generator=g)
+                lin.bias.uniform_(-bound, bound, generator=g)
+            layers.append(lin)
+            if i < len(self.hidden): layers.append(torch.nn.ReLU())
+        self.net_ = torch.nn.Sequential(*layers)
+        opt = torch.optim.Adam(self.net_.parameters(), lr=self.lr)
+        n = len(Xt); bs = min(self.batch_size, n); best, stale = np.inf, 0
+        weights = [m.weight for m in self.net_ if isinstance(m, torch.nn.Linear)]
+        for _ in range(self.max_iter):
+            perm = torch.randperm(n, generator=g); total = 0.0
+            for s in range(0, n, bs):
+                idx = perm[s:s + bs]
+                pred = self.net_(Xt[idx]).squeeze(1)
+                loss = 0.5 * torch.mean((pred - yt[idx]) ** 2) \
+                    + 0.5 * self.alpha * sum((w ** 2).sum() for w in weights) / n
+                opt.zero_grad(); loss.backward(); opt.step()
+                total += loss.item() * len(idx)
+            epoch_loss = total / n
+            if epoch_loss > best - self.tol: stale += 1
+            else: stale = 0
+            best = min(best, epoch_loss)
+            if stale >= self.n_iter_no_change: break
+        self.n_iter_ = _ + 1
+        return self
+
+    def predict(self, X):
+        X = (np.asarray(X, dtype=np.float32) - self.mu_) / self.sd_
+        with torch.no_grad():
+            return self.net_(torch.from_numpy(X)).squeeze(1).numpy().astype(float)
 
 
 class TProportional:
@@ -175,19 +232,13 @@ def frozen_models(with_interventional=True):
         "hscm_struct": scm(True),          # MAC mechanism = T * g_hat(X)
         "hscm_gbm": scm(False),            # function-class ablation
         # smooth in T, UE-specific response, no structural knowledge
-        "noncausal_mlp": make_pipeline(
-            StandardScaler(),
-            MLPRegressor(hidden_layer_sizes=(64, 64), max_iter=3000,
-                         random_state=42)).fit(X, y),
+        "noncausal_mlp": TorchMLP(seed=42).fit(X, y),
         "noncausal_gbm": GradientBoostingRegressor(**GBM_PARAMS).fit(X, y),
         # the proportional form WITHOUT the graph: the missing 2x2 cell
         "flat_tprop": TProportional().fit(
             pool[NC_ND].values.astype(float), pool.num_prb.values, y),
-        # the same S-learner at four more initialisations
-        **{f"noncausal_mlp_rs{r}": make_pipeline(
-            StandardScaler(),
-            MLPRegressor(hidden_layer_sizes=(64, 64), max_iter=3000,
-                         random_state=r)).fit(X, y) for r in MLP_INITS},
+        # the same MLP at four more initialisations
+        **{f"noncausal_mlp_rs{r}": TorchMLP(seed=r).fit(X, y) for r in MLP_INITS},
     }, pool
 
 
@@ -200,14 +251,17 @@ def random_allocate(rng, K, budget, k_min, k_max):
     return a
 
 
-def one_cell(sim, M, cfg, rng, n_ues, k_min):
+def one_cell(sim, M, cfg, rng, n_ues, k_min, budget_mode="load"):
     o = cfg["observational"]["cell_load"]
     u = sim.sample_exogenous(n_ues, rng)
     L = float(rng.beta(o["a"], o["b"]))
     u["cell_load"] = np.full(n_ues, L)          # one cell -> one load state
 
-    base = 100
-    budget = int(np.floor(base * (1.0 - float(cfg["mac"]["alpha_L"]) * L)))
+    base = int(cfg["mac"]["base_prb"])
+    if budget_mode == "fixed":
+        budget = base                      # whole carrier, independent of L
+    else:                                  # eq. (2) without the scheduling noise
+        budget = int(np.floor(base * (1.0 - float(cfg["mac"]["alpha_L"]) * L)))
     budget = max(budget, n_ues * k_min)
     k_max = min(budget - (n_ues - 1) * k_min, base)
     if k_max < k_min:
@@ -237,9 +291,16 @@ def one_cell(sim, M, cfg, rng, n_ues, k_min):
         tables[name] = util(
             lambda k, e=eng, r=res: e.predict(
                 fact, {"num_prb": int(k)}, r).goodput.values)
-    for name in ["noncausal_mlp", "noncausal_gbm"] + [
-            f"noncausal_mlp_rs{r}" for r in MLP_INITS]:
-        tables[name] = util(lambda k, m=M[name]: flat(m, k))
+    tables["noncausal_gbm"] = util(lambda k, m=M["noncausal_gbm"]: flat(m, k))
+    # the MLP is calibrated to the UE's factual outcome: its predicted curve is
+    # rescaled so that the prediction at the factual allocation equals the
+    # factual goodput, which gives it the same post-allocation information the
+    # H-SCM abducts from (without a graph or mechanism-wise residuals)
+    y_fact = fact.goodput.values
+    for name in MLP_ARMS:
+        yhat_fact = M[name].predict(fact[NC_FEATURES].values.astype(float))
+        ratio = y_fact / np.maximum(yhat_fact, 0.5)
+        tables[name] = util(lambda k, m=M[name], r=ratio: flat(m, k) * r)
     hx = M["flat_tprop"].h.predict(fact[NC_ND].values.astype(float))
     tables["flat_tprop"] = util(lambda k: k * hx)
 
@@ -266,6 +327,11 @@ def main():
     ap.add_argument("--cells", type=int, default=40)
     ap.add_argument("--ues", type=int, default=4)
     ap.add_argument("--kmin", type=int, default=10)
+    ap.add_argument("--budget", choices=["load", "fixed"], default="load",
+                    help="cell PRB budget: floor(N_PRB(1 - alpha_L L)) from "
+                         "eq. (2) (default) or the whole carrier N_PRB")
+    ap.add_argument("--tag", default="",
+                    help="suffix for results/step15_alloc_by_env<tag>.csv")
     ap.add_argument("--support-ablation", action="store_true",
                     help="fit on the 500 observational rows ONLY, to expose "
                          "the low-PRB treatment-support failure")
@@ -285,7 +351,7 @@ def main():
         for s in range(a.seeds):
             rng = np.random.default_rng(58_000 + 131 * s)   # final seeds,
             # disjoint from the pilot stream that guided estimator choice
-            per = [one_cell(sim, M, cfg, rng, a.ues, a.kmin)
+            per = [one_cell(sim, M, cfg, rng, a.ues, a.kmin, a.budget)
                    for _ in range(a.cells)]
             per = [p for p in per if p]
             d = pd.DataFrame(per)
@@ -296,7 +362,7 @@ def main():
                     ((d.J_oracle - d[f"J_{m}"]) / d.J_oracle).mean())
             rows.append(r)
     df = pd.DataFrame(rows)
-    tag = "_obsonly" if a.support_ablation else ""
+    tag = a.tag or ("_obsonly" if a.support_ablation else "")
     out = os.path.join(ROOT, "results", f"step15_alloc_by_env{tag}.csv")
     df.to_csv(out, index=False)
 
@@ -314,7 +380,7 @@ def main():
                   f"{100*e[f'regret_{m}'].std():4.2f}%")
         inits = [100 * e[f"regret_noncausal_mlp{t}"].mean()
                  for t in [""] + [f"_rs{r}" for r in MLP_INITS]]
-        print(f"    S-learner (MLP) over {len(inits)} initialisations: regret "
+        print(f"    MLP (factual-calibrated) over {len(inits)} initialisations: regret "
               f"{min(inits):.2f}% .. {max(inits):.2f}%")
     print(f"\nwrote {out}")
 

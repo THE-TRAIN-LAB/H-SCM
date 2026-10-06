@@ -31,13 +31,13 @@ the code on the right.
 | | μ: MAC service rate from T, η_PHY, HARQ overhead and the device-specific RF term ξ_hw | `mac_tput` |
 | L3 network | Q = [ρ² ξ_tb / (2(1 − ρ)) + ε₃]₊,  ρ = min{λ/μ, ρ_max}  (4) | `queue_dep` |
 | | D_RTT = τ₀ + c_q Q/λ + τ_H E[N_retx]  (5) | `rtt_ms` |
-| | P_loss = 1 − (1 − p^{1+E[N_retx]}) exp(−[Q − q_th]₊ / q_scale)  (6) | `pkt_loss` |
+| | P_loss = 1 − (1 − p^{1+K_H}) exp(−[Q − q_th]₊ / q_scale)  (6) | `pkt_loss` |
 | | Y = μ (1 − P_loss) | `goodput` (the outcome) |
 
 Context variables **z** = {L, γ₀, f_D, τ_rms, ξ_sf, ξ_hw, ξ_tb} (`cell_load, snr,
 doppler, delay_spread, shadow_fading, hw_impairment, traffic_burst`); noise
 U = {ε_γ, ε_T, ε₃} (`eps_sinr, eps_sched, eps_queue`). The DAG in
-`config/dag_edges.yaml` has 23 nodes and 30 edges and is derived from the equations
+`config/dag_edges.yaml` has 23 nodes and 29 edges and is derived from the equations
 above. Cell load L is a common cause of T and γ_eff — the backdoor path
 T ← L → γ_eff → ⋯ → Y — while ξ_sf, ξ_hw and ξ_tb have no edge into T and act as
 effect modifiers. do(T = t) replaces the mechanism of T by the constant t, severing
@@ -92,13 +92,13 @@ each UE's effective SINR.
 ## Results reported in the paper
 
 **Causal discovery** (`results/step11_per_seed.csv`, `results/step11_recovered_dag.yaml`).
-Discovery runs on the 17 observable telemetry variables, which contain 24 of the
-DAG's 30 edges; the six latent variables (ξ_sf, ξ_hw, ξ_tb, ε_γ, ε_T, ε₃) and their
+Discovery runs on the 17 observable telemetry variables, which contain 23 of the
+DAG's 29 edges; the six latent variables (ξ_sf, ξ_hw, ξ_tb, ε_γ, ε_T, ε₃) and their
 outgoing edges are excluded from discovery and its evaluation. Each run uses 500
 observational and 2940 interventional samples, plus 2000 paired UE realizations per
 mediator-testing contrast. Across 50 independent realizations the pipeline recovers
-22 of the 24 observable edges with no false positives: precision 1.000, recall 0.917,
-F1 0.957.
+21 of the 23 observable edges with no false positives: precision 1.000, recall 0.913,
+F1 0.955.
 
 **Structural fitting and held-out counterfactuals** (`results/cf_oracle_validation.csv`).
 Models are fitted on 500 observational samples. On 5000 held-out UEs the per-UE
@@ -107,11 +107,11 @@ per-UE outcomes under do(T = 50), do(T = 100) and hardware normalization do(ξ_h
 
 **Fig. 2 — confounding analysis** (`results/rung2_dose_response.csv`,
 `results/step13_phase6.csv`). Naive OLS regression of Y on T alone predicts a mean
-goodput of 47.34 Mbps at T = 100, exceeding the simulator's ground-truth mean of
-27.25 Mbps under the same intervention by 73.7 %. Including L in the regression
-reduces the estimate to 29.85 Mbps and the relative error to 9.5 %. The recovered and
+goodput of 49.20 Mbps at T = 100, exceeding the simulator's ground-truth mean of
+28.39 Mbps under the same intervention by 73.3 %. Including L in the regression
+reduces the estimate to 31.18 Mbps and the relative error to 9.8 %. The recovered and
 reference graphs yield identical estimates because both identify L as the required
-adjustment variable. Mean interventional goodput is 2.32, 13.56 and 27.25 Mbps at
+adjustment variable. Mean interventional goodput is 2.42, 14.12 and 28.39 Mbps at
 T = 10, 50 and 100.
 
 ![Fig. 2 — confounding analysis](results/figures/fig2_confounding.png)
@@ -121,15 +121,15 @@ T = 10, 50 and 100.
 
 | query | selection | n | mean goodput | gain |
 |---|---|---|---|---|
-| CF-1: what goodput would UEs with moderate factual goodput have attained under do(T = 100)? | 5 ≤ Y ≤ 40 Mbps | 175 | 19.47 → 28.90 Mbps | +9.43 (+48.4 %) |
-| CF-2: what goodput would UEs underperforming their peers have attained at nominal hardware, do(ξ_hw = 0)? | MAC throughput below 95 % of the median among peers with the same MCS and PRB decile | 121 | 13.65 → 15.25 Mbps | +1.60 (+11.7 %) |
-| CF-3: what goodput would UEs with nominal SNR γ₀ ∈ [10, 20] dB and factual Y < 15 Mbps have attained under do(T = 100)? | γ₀ ∈ [10, 20] dB, Y < 15 Mbps | 114 | 3.46 → 5.32 Mbps | +1.85 (+53.5 %) |
+| CF-1: what goodput would UEs with moderate factual goodput have attained under do(T = 100)? | 5 ≤ Y ≤ 40 Mbps | 179 | 19.53 → 29.04 Mbps | +9.51 (+48.7 %) |
+| CF-2: what goodput would UEs underperforming their peers have attained at nominal hardware, do(ξ_hw = 0)? | MAC throughput below 95 % of the median among peers with the same MCS and PRB decile | 121 | 14.15 → 15.80 Mbps | +1.65 (+11.7 %) |
+| CF-3: what goodput would UEs with nominal SNR γ₀ ∈ [10, 20] dB and factual Y < 15 Mbps have attained under do(T = 100)? | γ₀ ∈ [10, 20] dB, Y < 15 Mbps | 113 | 3.55 → 5.52 Mbps | +1.97 (+55.6 %) |
 
-By inferred residual range: in CF-1 the mean gain is 5.43 Mbps for the most
-channel-limited UEs and 11.56 Mbps for the most favorable; in CF-2 gains concentrate
+By inferred residual range: in CF-1 the mean gain is 5.65 Mbps for the most
+channel-limited UEs and 11.35 Mbps for the most favorable; in CF-2 gains concentrate
 among UEs with below-nominal hardware quality while UEs with above-nominal quality
-lose goodput when normalized; in CF-3 channel-limited UEs gain 0.10 Mbps on average
-against 6.00 Mbps for PRB-limited UEs. The mean gain alone cannot identify which UEs
+lose goodput when normalized; in CF-3 channel-limited UEs gain 0.11 Mbps on average
+against 6.88 Mbps for PRB-limited UEs. The mean gain alone cannot identify which UEs
 benefit from additional PRBs.
 
 ![Fig. 3 — counterfactual goodput gains](results/figures/fig3_counterfactual_gains.png)
@@ -137,14 +137,22 @@ benefit from additional PRBs.
 **Fig. 4 — counterfactual scheduling under environment shift**
 (`results/step15_alloc_by_env.csv`). Four UEs (K = 4) share the cell's PRB budget with
 at least 10 PRBs per UE. The H-SCM and a multilayer perceptron (MLP) trained on
-identical data optimize their predicted goodput by exact search, and allocations are
+identical data and reading the same telemetry (the MLP, a PyTorch network with two hidden layers of 64 units, predicts
+E[Y | T, x] from pre-allocation telemetry and is calibrated to the UE's factual
+goodput, so it has access to everything the H-SCM abducts from) optimize their predicted goodput by
+exact search, and allocations are
 evaluated in the simulator against an oracle using true counterfactuals. Models are
 trained once under nominal conditions and tested without refitting in four
 environments (nominal; high load; poor channel; diverse UEs — `experiments/step15_alloc_by_env.py`
 defines the shifted root distributions) over 50 realizations. The mean relative loss
-in realized total cell goodput against the oracle allocation is 0.27–0.50 % for the
-H-SCM, 1.5–2.3 % for the MLP, 8–10 % for allocation proportional to observed goodput,
+in realized total cell goodput against the oracle allocation is 0.25–0.49 % for the
+H-SCM, 2.2–2.8 % for the MLP, 8–10 % for allocation proportional to observed goodput,
 and 39–49 % for equal splitting.
+
+With eight UEs sharing the full carrier (N_PRB = 100; the load-dependent budget of
+42–100 PRBs with a 10-PRB floor supports at most four UEs without degenerate cells)
+the loss is 0.28–0.51 % for the H-SCM against 4.7–6.6 % for the MLP
+(`results/step15_alloc_by_env_ues8_fixedB.csv`).
 
 ![Fig. 4 — scheduling performance across four environments](results/figures/fig4_scheduling.png)
 
@@ -161,7 +169,8 @@ python experiments/step6_rung12.py                        # naive / adjusted / g
 python experiments/step7_counterfactuals.py               # held-out R^2 under do(T=50), do(T=100), do(xi_hw=0)
 python experiments/step11_protocol_discovery.py --seeds 50    # causal discovery, 50 realizations -> results/step11_recovered_dag.yaml
 python experiments/step13_phase67_recovered.py            # estimates and CF-1/2/3 on the recovered graph
-python experiments/step15_alloc_by_env.py --seeds 50 --cells 25  # scheduling in four environments
+python experiments/step15_alloc_by_env.py --seeds 50 --cells 25  # scheduling in four environments (K = 4)
+python experiments/step15_alloc_by_env.py --seeds 50 --cells 25 --ues 8 --budget fixed --tag _ues8_fixedB  # K = 8, full carrier
 python experiments/plot_dag.py                            # Fig. 1 -> results/figures/fig1_dag.png
 python experiments/plot_confounding_recovered.py          # Fig. 2 -> results/figures/fig2_confounding.png
 python experiments/plot_cf_effects.py                     # Fig. 3 -> results/figures/fig3_counterfactual_gains.png

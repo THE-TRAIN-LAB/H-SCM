@@ -44,7 +44,7 @@ ORACLE = "#27AE60"
 POLICIES = [
     ("equal",         "equal split",          "#9A9A9A", "s"),
     ("proportional",  "proportional to goodput",       "#C0392B", "^"),
-    ("noncausal_mlp", r"MLP $\hat{E}[Y\mid T,\boldsymbol{x}]$", "#E69F00", "D"),
+    ("noncausal_mlp", "MLP",                            "#E69F00", "D"),
     ("hscm_struct",   "H-SCM (proposed)",              "#0072B2", "o"),
 ]
 MLP_INITS = ("", "_rs43", "_rs44", "_rs45", "_rs46")
