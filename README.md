@@ -149,11 +149,6 @@ in realized total cell goodput against the oracle allocation is 0.25–0.49 % fo
 H-SCM, 2.2–2.8 % for the MLP, 8–10 % for allocation proportional to observed goodput,
 and 39–49 % for equal splitting.
 
-With eight UEs sharing the full carrier (N_PRB = 100; the load-dependent budget of
-42–100 PRBs with a 10-PRB floor supports at most four UEs without degenerate cells)
-the loss is 0.28–0.51 % for the H-SCM against 4.7–6.6 % for the MLP
-(`results/step15_alloc_by_env_ues8_fixedB.csv`).
-
 ![Fig. 4 — scheduling performance across four environments](results/figures/fig4_scheduling.png)
 
 ## Reproduce
@@ -170,7 +165,6 @@ python experiments/step7_counterfactuals.py               # held-out R^2 under d
 python experiments/step11_protocol_discovery.py --seeds 50    # causal discovery, 50 realizations -> results/step11_recovered_dag.yaml
 python experiments/step13_phase67_recovered.py            # estimates and CF-1/2/3 on the recovered graph
 python experiments/step15_alloc_by_env.py --seeds 50 --cells 25  # scheduling in four environments (K = 4)
-python experiments/step15_alloc_by_env.py --seeds 50 --cells 25 --ues 8 --budget fixed --tag _ues8_fixedB  # K = 8, full carrier
 python experiments/plot_dag.py                            # Fig. 1 -> results/figures/fig1_dag.png
 python experiments/plot_confounding_recovered.py          # Fig. 2 -> results/figures/fig2_confounding.png
 python experiments/plot_cf_effects.py                     # Fig. 3 -> results/figures/fig3_counterfactual_gains.png
